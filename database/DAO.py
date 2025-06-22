@@ -1,84 +1,106 @@
 from database.DB_connect import DBConnect
 from model.order import Order
+from model.store import Store
 
 
 class DAO():
-    @staticmethod
-    def getListaStore():
-        conn = DBConnect.get_connection()
-        cursor = conn.cursor(dictionary=True)
 
-        query = """select distinct * 
-                    from stores s """
-        cursor.execute(query, ())
+    @staticmethod
+    def getStores():
+        conn = DBConnect.get_connection()
 
         result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """ select * from stores s   """
+
+        cursor.execute(query, ())
+
         for row in cursor:
-            result.append((row["store_name"], row["store_id"]))
+            result.append(Store(**row))
 
         cursor.close()
         conn.close()
-
         return result
 
     @staticmethod
-    def getNodes(store_id):
+    def getOrdiniStore(store):
         conn = DBConnect.get_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        query = """select *
-                from orders o 
-                where o.store_id = %s"""
-        cursor.execute(query, (store_id,))
 
         result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """ select *
+                    from orders o 
+                    where store_id = %s """
+
+        cursor.execute(query, (store, ))
+
         for row in cursor:
             result.append(Order(**row))
 
         cursor.close()
         conn.close()
-
         return result
 
     @staticmethod
-    def getAllArchi(store_id, num_giorni):
+    def getQtaOggettiCompratiNegliOrdini(u: Order, v:Order, store, giorni):
         conn = DBConnect.get_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        query = """SELECT   o1.order_id, 
-                            o2.order_id, 
-                            o1.order_date, 
-                            o2.order_date, 
-                            (q1.total_quantity + q2.total_quantity) AS peso
-                        FROM 
-                            orders o1, 
-                            orders o2,
-                            (SELECT order_id, SUM(quantity) AS total_quantity 
-                             FROM order_items 
-                             GROUP BY order_id) AS q1,
-                            (SELECT order_id, SUM(quantity) AS total_quantity 
-                             FROM order_items 
-                             GROUP BY order_id) AS q2
-                        WHERE 
-                            o1.store_id = %s
-                            AND o1.store_id = o2.store_id
-                            AND o1.order_id <> o2.order_id
-                            AND DATEDIFF(o1.order_date, o2.order_date) < %s
-                            AND o1.order_date > o2.order_date
-                            AND q1.order_id = o1.order_id
-                            AND q2.order_id = o2.order_id
-                        GROUP BY 
-                            o1.order_id, o2.order_id
-                          """
-
-        cursor.execute(query, (store_id, num_giorni))
 
         result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """     select sum(oi1.quantity) + sum(oi2.quantity) as peso
+                        from orders o1, orders o2, order_items oi1, order_items oi2
+                        
+                        where o1.store_id = %s
+                        and o2.store_id = %s
+                        
+                        and o1.order_id = %s
+                        and o2.order_id  = %s
+                        
+                        and oi1.order_id = %s
+                        and oi2.order_id = %s
+                        and o1.order_date > o2.order_date
+                        and datediff(o1.order_date, o2.order_date) < %s
+                        
+                        and o1.order_id = oi1.order_id
+                        and o2.order_id = oi2.order_id
+                        
+                        group by o1.order_id, o2.order_id """
+
+        cursor.execute(query, (store, store, u.order_id, v.order_id, u.order_id, v.order_id, giorni ))
+
         for row in cursor:
-            result.append((row["o1.order_id"], row["o2.order_id"], row["peso"]))
+            result.append(row["peso"])
 
         cursor.close()
         conn.close()
-
         return result
 
+    @staticmethod
+    def getAllEdges(idMap, store, giorni):
+        conn = DBConnect.get_connection()
+
+        result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """  select o1.order_id as id1, o2.order_id as id2, sum(oi1.quantity) + sum(oi2.quantity) as peso
+                    from orders o1, orders o2, order_items oi1, order_items oi2  
+                    where o1.store_id = %s
+                    and o2.store_id = %s
+                    and o1.order_id <> o2.order_id
+                    and o1.order_date > o2.order_date
+                    and datediff(o1.order_date, o2.order_date) < %s
+                    and o1.order_id = oi1.order_id
+                    and o2.order_id = oi2.order_id
+                    group by o1.order_id, o2.order_id  """
+
+        cursor.execute(query, (store, store, giorni))
+
+        for row in cursor:
+            result.append((idMap[row["id1"]], idMap[row["id2"]], row["peso"]))
+
+        cursor.close()
+        conn.close()
+        return result
